@@ -167,7 +167,7 @@ const sortedTimeWithPerson = Object.entries(timeWithPerson)
 console.log(`Events Grouped by ${options.groupBy.charAt(0).toUpperCase() + options.groupBy.slice(1)}:`);
 for (let group in groupedEvents) {
   console.log(`${group}:`);
-  console.log(`  Total Duration: ${groupedEvents[group].totalDuration} hours`);
+  console.log(`  Total Duration: ${formatDuration(groupedEvents[group].totalDuration)}`);
   console.log(`  Events:`);
   groupedEvents[group].events.forEach(event => {
     if (event.isPrivate) {
