@@ -5,7 +5,7 @@
   "main": "analyse.js",
   "type": "module",
   "scripts": {
-    "start": "node analyse.js"
+    "analyse": "node analyse.js"
   },
   "dependencies": {
     "chalk": "^5.4.1",

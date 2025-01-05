@@ -5,6 +5,22 @@ import yargs from 'yargs';
 import chalk from 'chalk';
 import { hideBin } from 'yargs/helpers';
 
+// Helper function to format the duration in hours and minutes
+function formatDuration(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  
+  if (hours > 0 && mins > 0) {
+    return `${hours} hours ${mins} minutes`;
+  } else if (hours > 0) {
+    return `${hours} hours`;
+  } else if (mins > 0) {
+    return `${mins} minutes`;
+  } else {
+    return '0 minutes';
+  }
+}
+
 // Helper function to parse ICS file and extract event details using node-ical
 function parseICS(filePath) {
   const data = fs.readFileSync(filePath, 'utf8');
@@ -29,15 +45,15 @@ function parseICS(filePath) {
       const classType = event.class || 'PUBLIC';  // Class property could indicate privacy
 
       events.push({
-        start: start,
-        end: end,
-        duration: moment(end).diff(moment(start), 'hours'), // duration in hours
-        summary: summary,
-        location: location,
-        attendees: attendees,
+        start,
+        end,
+        duration: moment(end).diff(moment(start), 'minutes'), // duration in minutes
+        summary,
+        location,
+        attendees,
         month: moment(start).format('MMMM YYYY'),  // Grouping by month
-        status: status,
-        classType: classType,
+        status,
+        classType,
         isPrivate: classType === 'PRIVATE', // Flag private events
       });
     }
@@ -66,6 +82,19 @@ const options = yargs(hideBin(process.argv))
     type: 'string',
     demandOption: true,
   })
+  .option('g', {
+    alias: 'groupBy',
+    describe: 'Group events by "month" or "title"',
+    type: 'string',
+    choices: ['month', 'title'],
+    demandOption: true,
+  })
+  .option('p', {
+    alias: 'person',
+    describe: 'Track time spent with one or more persons (comma-separated names or emails). If the list of names is empty, everyone will be included.',
+    type: 'string',
+    coerce: (arg) => arg.split(',').map(name => name.trim()), // Coerce to array of names
+  })
   .argv;
 
 // Validate date range
@@ -85,31 +114,62 @@ const filteredEvents = allEvents.filter(event => {
   return eventStart.isBetween(startDate, endDate, undefined, '[]');
 });
 
-// Group events by month
-const groupedByMonth = filteredEvents.reduce((acc, event) => {
-  const monthYear = event.month;
-  if (!acc[monthYear]) {
-    acc[monthYear] = { events: [], totalDuration: 0 };
-  }
-  acc[monthYear].events.push(event);
-  acc[monthYear].totalDuration += event.duration;
-  return acc;
-}, {});
+const includeEveryone = options.person.length === 1 && options.person[0].trim().length === 0
 
-// Sort months chronologically
-const sortedMonths = Object.keys(groupedByMonth).sort((a, b) => {
-  const aDate = moment(a, 'MMMM YYYY');
-  const bDate = moment(b, 'MMMM YYYY');
-  return aDate.isBefore(bDate) ? -1 : 1;
-});
+// Group events based on the user's selected grouping option
+let groupedEvents;
+if (options.groupBy === 'month') {
+  // Group events by month
+  groupedEvents = filteredEvents.reduce((acc, event) => {
+    const monthYear = event.month;
+    if (!acc[monthYear]) {
+      acc[monthYear] = { events: [], totalDuration: 0 };
+    }
+    acc[monthYear].events.push(event);
+    acc[monthYear].totalDuration += event.duration;
+    return acc;
+  }, {});
+} else if (options.groupBy === 'title') {
+  // Group events by meeting title
+  groupedEvents = filteredEvents.reduce((acc, event) => {
+    const title = event.summary;
+    if (!acc[title]) {
+      acc[title] = { events: [], totalDuration: 0 };
+    }
+    acc[title].events.push(event);
+    acc[title].totalDuration += event.duration;
+    return acc;
+  }, {});
+}
 
-// Output the grouped events in chronological order
-console.log('Events Grouped by Month (Chronological Order):');
-sortedMonths.forEach(month => {
-  console.log(`${month}:`);
-  console.log(`  Total Duration: ${groupedByMonth[month].totalDuration} hours`);
+// Track time spent with a particular person (if provided)
+let timeWithPerson = {};
+if (options.person) {
+  filteredEvents.forEach(event => {
+    const attendees = Array.isArray(event.attendees) ? event.attendees : [event.attendees];
+    attendees.forEach(attendee => {
+      const cn = attendee.params?.CN
+      if (includeEveryone || options.person.includes(cn)) {
+        if (!timeWithPerson[cn]) {
+          timeWithPerson[cn] = 0;
+        }
+        timeWithPerson[cn] += event.duration;
+      }
+    });
+  });
+}
+
+// Sort the time spent with people from highest to lowest
+const sortedTimeWithPerson = Object.entries(timeWithPerson)
+  .sort(([, timeA], [, timeB]) => timeB - timeA);
+
+// Output the grouped events and total time spent with each person
+console.log(`Events Grouped by ${options.groupBy.charAt(0).toUpperCase() + options.groupBy.slice(1)}:`);
+for (let group in groupedEvents) {
+  console.log(`${group}:`);
+  console.log(`  Total Duration: ${groupedEvents[group].totalDuration} hours`);
   console.log(`  Events:`);
-  groupedByMonth[month].events.forEach(event => {
+  groupedEvents[group].events.forEach(event => {
     if (event.isPrivate) {
       console.log(chalk.red(`    - ${event.summary} (PRIVATE) (${event.start} - ${event.end})`));
     } else {
@@ -117,4 +177,12 @@ sortedMonths.forEach(month => {
     }
   });
   console.log('');
-});
+}
+
+// Output time spent with a particular person (if specified)
+if (options.person) {
+  console.log(`Time spent with ${includeEveryone ? 'everyone' : options.person.map(p => `'${p}'`).join(' OR ')}:`);
+  sortedTimeWithPerson.forEach(([person, time]) => {
+    console.log(`  ${person}: ${formatDuration(time)}`);
+  });
+}
