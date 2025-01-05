@@ -163,9 +163,16 @@ if (options.person) {
 const sortedTimeWithPerson = Object.entries(timeWithPerson)
   .sort(([, timeA], [, timeB]) => timeB - timeA);
 
+// Sort months chronologically
+const sortedMonths = Object.keys(groupedEvents).sort((a, b) => {
+  const aDate = moment(a, 'MMMM YYYY');
+  const bDate = moment(b, 'MMMM YYYY');
+  return aDate.isBefore(bDate) ? -1 : 1;
+});
+
 // Output the grouped events and total time spent with each person
 console.log(`Events Grouped by ${options.groupBy.charAt(0).toUpperCase() + options.groupBy.slice(1)}:`);
-for (let group in groupedEvents) {
+for (let group of sortedMonths) {
   console.log(`${group}:`);
   console.log(`  Total Duration: ${formatDuration(groupedEvents[group].totalDuration)}`);
   console.log(`  Events:`);
